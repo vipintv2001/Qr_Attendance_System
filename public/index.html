@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TechE Attendance Portal</title>
+    <style>
+      :root {
+        --primary-color: #4f46e5;
+        --success-color: #10b981;
+        --warning-color: #f59e0b;
+        --bg-color: #f8fafc;
+        --card-bg: #ffffff;
+        --text-main: #1e293b;
+        --text-sub: #64748b;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background-color: var(--bg-color);
+        color: var(--text-main);
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+
+      .container {
+        width: 85%;
+        max-width: 380px;
+        background: var(--card-bg);
+        padding: 40px 30px;
+        border-radius: 24px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.03);
+        text-align: center;
+      }
+
+      .logo-container { margin-bottom: 16px; display: flex; justify-content: center; align-items: center; }
+      .logo-container img { max-width: 150px; height: auto; max-height: 60px; object-fit: contain; }
+      h2 { font-size: 20px; font-weight: 600; margin: 0 0 6px 0; }
+      p { color: var(--text-sub); font-size: 14px; margin: 0 0 32px 0; }
+
+      .welcome-badge {
+        display: none;
+        background-color: #eef2ff;
+        color: var(--primary-color);
+        padding: 14px;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 15px;
+        margin-bottom: 16px;
+        border: 1px dashed #c7d2fe;
+        line-height: 1.4;
+      }
+
+      .status-indicator {
+        display: none;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 6px 14px;
+        border-radius: 30px;
+        margin-bottom: 24px;
+        display: inline-block;
+      }
+      .status-in { background-color: #d1fae5; color: #065f46; }
+      .status-out { background-color: #fef3c7; color: #92400e; }
+
+      .input-group { text-align: left; margin-bottom: 20px; }
+      label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.5px; }
+      .prefix-input-wrapper { display: flex; align-items: center; border: 1.5px solid #e2e8f0; border-radius: 12px; background-color: #fcfcfd; overflow: hidden; }
+      .prefix-text { padding: 16px 0 16px 16px; font-size: 16px; color: var(--text-sub); font-weight: 600; }
+      input[type="text"] { width: 100%; box-sizing: border-box; padding: 16px 16px 16px 4px; border: none; font-size: 16px; outline: none; background: transparent; }
+      .prefix-input-wrapper:focus-within { border-color: var(--primary-color); }
+
+      button {
+        width: 100%;
+        padding: 16px;
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.1s;
+      }
+      button:active { transform: scale(0.98); }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="logo-container">
+        <img src="TechE_Logo_01.png" alt="TechE Education Logo" onerror="this.style.display='none'; document.getElementById('alt-logo').style.display='block';" />
+        <div id="alt-logo" style="display: none; font-size: 26px; font-weight: 800; color: var(--primary-color);">TechE Education</div>
+      </div>
+
+      <h2>Employee Attendance Portal</h2>
+      <p>Log your shift timings instantly</p>
+
+      <div id="welcomeBadge" class="welcome-badge"></div>
+      <div id="statusIndicator" class="status-indicator"></div>
+
+      <form action="/api/attendance" method="POST" onsubmit="combinePrefix()">
+        <input type="hidden" id="realEmployeeId" name="employeeId" />
+        <input type="hidden" id="deviceToken" name="deviceToken" />
+        <input type="hidden" id="attendanceAction" name="attendanceAction" />
+
+        <div class="input-group" id="idInputGroup">
+          <label for="empNumber">Employee ID</label>
+          <div class="prefix-input-wrapper">
+            <span class="prefix-text">TECHE</span>
+            <input type="text" id="empNumber" placeholder="1001" inputmode="numeric" pattern="[0-9]*" autocomplete="off" />
+          </div>
+        </div>
+
+        <button type="submit" id="submitBtn">Verify & Submit</button>
+      </form>
+    </div>
+
+    <script>
+      window.addEventListener('DOMContentLoaded', () => {
+          let token = localStorage.getItem('teche_device_token');
+          let savedId = localStorage.getItem('teche_saved_id');
+          let savedName = localStorage.getItem('teche_saved_name');
+          let nextAction = localStorage.getItem('teche_next_action') || 'Check-In';
+          
+          if (!token) {
+              token = 'token_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+              localStorage.setItem('teche_device_token', token);
+          }
+          document.getElementById('deviceToken').value = token;
+          document.getElementById('attendanceAction').value = nextAction;
+
+          const submitBtn = document.getElementById('submitBtn');
+          const statusIndicator = document.getElementById('statusIndicator');
+
+          if (savedId) {
+              document.getElementById('realEmployeeId').value = savedId;
+              document.getElementById('idInputGroup').style.display = 'none';
+              document.getElementById('empNumber').removeAttribute('required');
+              
+              // Show Name if cached locally, otherwise just display the ID
+              const displayName = savedName ? savedName : savedId.toUpperCase();
+              document.getElementById('welcomeBadge').innerHTML = `👤 <b>${displayName}</b><br><small style="color:var(--text-sub); font-weight:500;">ID: ${savedId.toUpperCase()}</small>`;
+              document.getElementById('welcomeBadge').style.display = 'block';
+
+              statusIndicator.style.display = 'inline-block';
+              if (nextAction === 'Check-In') {
+                  statusIndicator.innerText = "Status: Currently Clocked Out";
+                  statusIndicator.className = "status-indicator status-out";
+                  submitBtn.innerText = "Verify & Check-In";
+                  submitBtn.style.backgroundColor = "#10b981";
+              } else {
+                  statusIndicator.innerText = "Status: Currently Working";
+                  statusIndicator.className = "status-indicator status-in";
+                  submitBtn.innerText = "Verify & Check-Out";
+                  submitBtn.style.backgroundColor = "#ea580c";
+              }
+          } else {
+              document.getElementById('empNumber').setAttribute('required', 'true');
+              statusIndicator.style.display = 'none';
+          }
+          
+          // Check if server sent back an updated name string to cache in storage loop
+          const urlParams = new URLSearchParams(window.location.search);
+          const nameParam = urlParams.get('registeredName');
+          if (nameParam) {
+              localStorage.setItem('teche_saved_name', decodeURIComponent(nameParam));
+              // Clear URL parameter cleaner step
+              window.history.replaceState({}, document.title, window.location.pathname);
+          }
+      });
+
+      function combinePrefix() {
+          let savedId = localStorage.getItem('teche_saved_id');
+          let currentAction = document.getElementById('attendanceAction').value;
+          
+          if (!savedId) {
+              const numInput = document.getElementById('empNumber').value.trim();
+              savedId = 'teche' + numInput;
+              document.getElementById('realEmployeeId').value = savedId;
+              localStorage.setItem('teche_saved_id', savedId);
+          }
+
+          const toggleNextAction = currentAction === 'Check-In' ? 'Check-Out' : 'Check-In';
+          localStorage.setItem('teche_next_action', toggleNextAction);
+      }
+    </script>
+  </body>
+</html>

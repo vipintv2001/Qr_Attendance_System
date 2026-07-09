@@ -189,6 +189,11 @@ app.post("/api/attendance", async (req, res) => {
         </head>
         <body>
             ${responseHtml}
+
+            <script>
+                // 💾 Instantly cache the employee's parsed name directly onto the mobile browser layer
+                localStorage.setItem('teche_saved_name', "${employeeName}");
+            </script>
         </body>
         </html>
     `);

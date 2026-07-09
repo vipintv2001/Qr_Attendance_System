@@ -118,7 +118,7 @@
       </form>
     </div>
 
-    <script>
+   <script>
       window.addEventListener('DOMContentLoaded', () => {
           let token = localStorage.getItem('teche_device_token');
           let savedId = localStorage.getItem('teche_saved_id');
@@ -140,7 +140,7 @@
               document.getElementById('idInputGroup').style.display = 'none';
               document.getElementById('empNumber').removeAttribute('required');
               
-              // Show Name if cached locally, otherwise just display the ID
+              // 👤 Displays Name natively if it exists, fallbacks back to ID string
               const displayName = savedName ? savedName : savedId.toUpperCase();
               document.getElementById('welcomeBadge').innerHTML = `👤 <b>${displayName}</b><br><small style="color:var(--text-sub); font-weight:500;">ID: ${savedId.toUpperCase()}</small>`;
               document.getElementById('welcomeBadge').style.display = 'block';
@@ -160,15 +160,6 @@
           } else {
               document.getElementById('empNumber').setAttribute('required', 'true');
               statusIndicator.style.display = 'none';
-          }
-          
-          // Check if server sent back an updated name string to cache in storage loop
-          const urlParams = new URLSearchParams(window.location.search);
-          const nameParam = urlParams.get('registeredName');
-          if (nameParam) {
-              localStorage.setItem('teche_saved_name', decodeURIComponent(nameParam));
-              // Clear URL parameter cleaner step
-              window.history.replaceState({}, document.title, window.location.pathname);
           }
       });
 

@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechE Master Attendance Ledger</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --bg-main: #f8fafc;
+            --border-color: #cbd5e1;
+            --text-title: #0f172a;
+            --text-muted: #64748b;
+            
+            /* Status Indicators Colors */
+            --color-fd: #10b981;  /* Full Day Green */
+            --color-hd: #f59e0b;  /* Half Day Orange */
+            --color-abs: #ef4444; /* Absent Red */
+            --color-sun: #475569; /* Sunday Text */
+            --color-future: #94a3b8; /* Future Days Gray */
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-title);
+            margin: 0;
+            padding: 30px;
+        }
+
+        .header-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        h1 { font-size: 24px; font-weight: 700; margin: 0; letter-spacing: -0.5px; }
+        
+        .controls-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        input[type="month"] {
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            font-size: 15px;
+            font-weight: 500;
+            outline: none;
+        }
+
+        input[type="month"]:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        .matrix-scroll-wrapper {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+            overflow-x: auto;
+            max-width: 100%;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        th, td {
+            border: 1px solid #e2e8f0;
+            padding: 8px 10px;
+            white-space: nowrap;
+        }
+
+        th {
+            background-color: #f1f5f9;
+            color: #475569;
+            font-weight: 600;
+        }
+
+        .sticky-col {
+            position: sticky;
+            left: 0;
+            background-color: #f8fafc;
+            z-index: 2;
+            border-right: 2px solid #cbd5e1 !important;
+            text-align: left;
+        }
+        
+        td.sticky-col { background-color: #ffffff; }
+        th.sticky-header-main { z-index: 3; background-color: #4f46e5; color: white; }
+
+        /* Status cell highlights */
+        .cell-fd { color: var(--color-fd); font-weight: 700; background-color: #f0fdf4; cursor: pointer; transition: background 0.2s; }
+        .cell-hd { color: var(--color-hd); font-weight: 700; background-color: #fffbeb; cursor: pointer; transition: background 0.2s; }
+        .cell-fd:hover { background-color: #dcfce7; }
+        .cell-hd:hover { background-color: #fef3c7; }
+        .cell-abs { color: var(--color-abs); font-weight: 700; background-color: #fef2f2; }
+        .cell-sun { background-color: #e2e8f0; color: var(--color-sun); font-weight: 600; }
+        .cell-future { background-color: #fafafa; color: var(--color-future); font-style: italic; font-weight: 400; }
+        
+        .time-text { font-size: 10px; color: var(--text-muted); display: block; }
+        .summary-header { background-color: #e0e7ff; color: #3730a3; font-weight: 700; }
+        .summary-cell { background-color: #f5f3ff; font-weight: 700; color: #4c1d95; }
+
+        /* Slide-out drawer styles */
+        .drawer-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.3);
+            backdrop-filter: blur(2px);
+            z-index: 999;
+            display: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .drawer-content {
+            position: fixed;
+            top: 0;
+            right: -400px;
+            width: 100%;
+            max-width: 360px;
+            height: 100%;
+            background: white;
+            box-shadow: -10px 0 25px rgba(0,0,0,0.08);
+            z-index: 1000;
+            padding: 40px 24px;
+            box-sizing: border-box;
+            transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+        }
+        .drawer-open .drawer-overlay { display: block; opacity: 1; }
+        .drawer-open .drawer-content { right: 0; }
+        .close-btn { background: #f1f5f9; border: none; padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer; color: #475569; align-self: flex-start; margin-bottom: 24px; }
+        .close-btn:hover { background: #e2e8f0; }
+        .log-box { background: #f8fafc; border: 1px dashed var(--border-color); border-radius: 12px; padding: 16px; font-style: italic; color: #1e293b; line-height: 1.5; font-size: 14px; margin-top: 16px; }
+    </style>
+</head>
+<body>
+
+    <div class="header-section">
+        <div>
+            <h1>📊 TechE Education Attendance Regitser</h1>
+            <p style="color: var(--text-muted); margin: 4px 0 0 0; font-size: 14px;">Monthly Attendance View</p>
+        </div>
+        <div class="controls-wrapper">
+            <label style="font-size: 14px; font-weight: 600; color: var(--text-muted);">Period:</label>
+            <input type="month" id="monthSelector" onchange="generateMatrixLedger()">
+        </div>
+    </div>
+
+    <div class="matrix-scroll-wrapper">
+        <table id="attendanceMatrixTable">
+            <thead id="matrixHead"></thead>
+            <tbody id="matrixBody"></tbody>
+        </table>
+    </div>
+
+    <div id="drawerOverlay" class="drawer-overlay" onclick="closeDrawer()"></div>
+    <div id="drawerContent" class="drawer-content">
+        <button class="close-btn" onclick="closeDrawer()">✕ Close Panel</button>
+        <h2 id="drawerTitle" style="margin: 0 0 4px 0; font-size: 20px;">Daily Tasks Report</h2>
+        <p id="drawerMeta" style="color: var(--text-muted); margin: 0 0 20px 0; font-size: 13px; font-weight: 500;"></p>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 0;">
+        <div style="margin-top: 20px;">
+            <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--primary); letter-spacing: 0.5px;">Employee Logged Text</label>
+            <div id="drawerSummary" class="log-box"></div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('monthSelector').value = new Date().toISOString().slice(0, 7);
+
+        async function fetchLocalEmployeeRoster() {
+            try {
+                const res = await fetch('/employees.json');
+                if (!res.ok) throw new Error();
+                return await res.json();
+            } catch {
+                return { "teche1001": "Rahul Sharma", "teche1002": "Anjali Nair" };
+            }
+        }
+
+        async function generateMatrixLedger() {
+            const selectedPeriod = document.getElementById('monthSelector').value; 
+            const [year, month] = selectedPeriod.split('-');
+            const totalDaysInMonth = new Date(year, month, 0).getDate();
+            
+            // ⏰ Get a clean comparison boundary for the current live date string matching local time
+            const todayStr = new Date().toLocaleDateString('en-CA'); 
+
+            const response = await fetch(`/api/admin/monthly-report?month=${selectedPeriod}`);
+            const logsData = await response.json();
+            const employeeMap = await fetchLocalEmployeeRoster();
+
+            const thead = document.getElementById('matrixHead');
+            const tbody = document.getElementById('matrixBody');
+            
+            thead.innerHTML = '';
+            tbody.innerHTML = '';
+
+            let topHeaderRow = `<tr><th rowspan="2" class="sticky-col sticky-header-main" style="min-width: 220px; text-align:center;">Employee Metadata</th>`;
+            let subHeaderRow = `<tr>`;
+
+            for (let day = 1; day <= totalDaysInMonth; day++) {
+                const checkDate = new Date(year, month - 1, day);
+                const isSunday = checkDate.getDay() === 0;
+                
+                if (isSunday) {
+                    topHeaderRow += `<th colspan="3" style="background-color: #cbd5e1; color:#334155; min-width: 140px;">Day ${day}</th>`;
+                    subHeaderRow += `<th colspan="3" style="background-color: #cbd5e1; color:#475569; text-align:center;">Sunday</th>`;
+                } else {
+                    topHeaderRow += `<th colspan="3" style="min-width: 140px;">${day}</th>`;
+                    subHeaderRow += `<th>In</th><th>Out</th><th>Work</th>`;
+                }
+            }
+
+            topHeaderRow += `<th colspan="2" class="summary-header">Monthly Aggregation</th></tr>`;
+            subHeaderRow += `<th class="summary-header">Present</th><th class="summary-header">Total Hours</th></tr>`;
+            thead.innerHTML = topHeaderRow + subHeaderRow;
+
+            Object.keys(employeeMap).forEach(empId => {
+                const empName = employeeMap[empId];
+                let tr = document.createElement('tr');
+                
+                let employeeStickyCard = `
+                    <td class="sticky-col">
+                        <strong>${empName}</strong><br>
+                        <small style="color: var(--text-muted); font-weight:500;">${empId.toUpperCase()}</small>
+                    </td>
+                `;
+
+                let rowCellsHtml = '';
+                let totalDaysPresentCount = 0;
+                let accumulatedMonthlyMinutes = 0;
+
+                for (let day = 1; day <= totalDaysInMonth; day++) {
+                    const padDay = String(day).padStart(2, '0');
+                    const targetDateStr = `${selectedPeriod}-${padDay}`;
+                    
+                    const checkDate = new Date(year, month - 1, day);
+                    const isSunday = checkDate.getDay() === 0;
+
+                    const dayLog = logsData.find(log => log.employeeId.toLowerCase() === empId.toLowerCase() && log.dateString === targetDateStr);
+
+                    if (isSunday) {
+                        rowCellsHtml += `<td class="cell-sun" colspan="3">HOLIDAY</td>`;
+                    } else if (dayLog) {
+                        // Regular day WITH actual record log data populated
+                        const parseTime = (isoStr) => {
+                            if (!isoStr) return '--:--';
+                            const d = new Date(isoStr);
+                            return isNaN(d.getTime()) ? '--:--' : d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+                        };
+                        
+                        const timeInStr = parseTime(dayLog.checkIn);
+                        const timeOutStr = parseTime(dayLog.checkOut);
+                        
+                        let workHrsStr = '--';
+                        let statusMarker = 'Absent';
+                        let statusClass = 'cell-abs';
+
+                        if (dayLog.totalMinutes > 0) {
+                            accumulatedMonthlyMinutes += dayLog.totalMinutes;
+                            totalDaysPresentCount++; 
+
+                            const h = Math.floor(dayLog.totalMinutes / 60);
+                            const m = dayLog.totalMinutes % 60;
+                            workHrsStr = `${h}h ${m}m`;
+
+                            if (dayLog.totalMinutes >= 240) {
+                                statusMarker = 'FD';
+                                statusClass = 'cell-fd';
+                            } else {
+                                statusMarker = 'HD';
+                                statusClass = 'cell-hd';
+                            }
+                        }
+
+                        const escapedSummary = dayLog.workSummary ? dayLog.workSummary.replace(/"/g, '&quot;') : 'No activity text filled out.';
+
+                        rowCellsHtml += `
+                            <td><span class="time-text">${timeInStr}</span></td>
+                            <td><span class="time-text">${timeOutStr}</span></td>
+                            <td class="${statusClass}" onclick="openDrawer('${empName}', '${targetDateStr}', '${escapedSummary}')">
+                                <strong>${workHrsStr}</strong> <span style="font-size:9px; opacity:0.7;">(${statusMarker})</span>
+                            </td>
+                        `;
+                    } else {
+                        // 🧠 NO LOG DATA DETECTED SCENARIOS
+                        if (targetDateStr > todayStr) {
+                            // 🚀 Future dates: Display clean empty cells instead of screaming ABSENT
+                            rowCellsHtml += `<td class="cell-future" colspan="3">--</td>`;
+                        } else {
+                            // Passed dates: Truly Absent
+                            rowCellsHtml += `<td class="cell-abs" colspan="3">ABSENT (A)</td>`;
+                        }
+                    }
+                }
+
+                const monthlyTotalHours = Math.floor(accumulatedMonthlyMinutes / 60);
+                const monthlyTotalMins = accumulatedMonthlyMinutes % 60;
+
+                rowCellsHtml += `
+                    <td class="summary-cell">📊 ${totalDaysPresentCount} Days</td>
+                    <td class="summary-cell">⏱️ ${monthlyTotalHours}h ${monthlyTotalMins}m</td>
+                `;
+
+                tr.innerHTML = employeeStickyCard + rowCellsHtml;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function openDrawer(name, date, summary) {
+            document.getElementById('drawerTitle').innerText = name;
+            document.getElementById('drawerMeta').innerText = `📅 Date Logged: ${date}`;
+            document.getElementById('drawerSummary').innerText = `"${summary}"`;
+            document.body.classList.add('drawer-open');
+        }
+
+        function closeDrawer() {
+            document.body.classList.remove('drawer-open');
+        }
+
+        generateMatrixLedger();
+    </script>
+</body>
+</html>

@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TechE Master Attendance Ledger</title>
+    <link rel="icon" href="favicon.png">
+    
+    <!-- 📚 Include Client-Side PDF Generation Engines via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
     <style>
         :root {
             --primary: #4f46e5;
@@ -110,6 +116,25 @@
         .summary-header { background-color: #e0e7ff; color: #3730a3; font-weight: 700; }
         .summary-cell { background-color: #f5f3ff; font-weight: 700; color: #4c1d95; }
 
+        /* PDF Download Action Trigger Button Styling */
+        .pdf-btn {
+            background: #ffffff;
+            border: 1px solid #4f46e5;
+            color: #4f46e5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 9px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 4px;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+        .pdf-btn:hover {
+            background: #4f46e5;
+            color: #ffffff;
+        }
+
         /* Slide-out drawer styles */
         .drawer-overlay {
             position: fixed;
@@ -151,11 +176,11 @@
 
     <div class="header-section">
         <div>
-            <h1>📊 TechE Education Attendance Regitser</h1>
-            <p style="color: var(--text-muted); margin: 4px 0 0 0; font-size: 14px;">Monthly Attendance View</p>
+            <h1>📊 TechE Master Attendance Ledger</h1>
+            <p style="color: var(--text-muted); margin: 4px 0 0 0; font-size: 14px;">Unified Month Calendar Matrix Grid View</p>
         </div>
         <div class="controls-wrapper">
-            <label style="font-size: 14px; font-weight: 600; color: var(--text-muted);">Period:</label>
+            <label style="font-size: 14px; font-weight: 600; color: var(--text-muted);">Target Ledger Period:</label>
             <input type="month" id="monthSelector" onchange="generateMatrixLedger()">
         </div>
     </div>
@@ -167,6 +192,7 @@
         </table>
     </div>
 
+    <!-- Slide-out drawer -->
     <div id="drawerOverlay" class="drawer-overlay" onclick="closeDrawer()"></div>
     <div id="drawerContent" class="drawer-content">
         <button class="close-btn" onclick="closeDrawer()">✕ Close Panel</button>
@@ -182,6 +208,10 @@
     <script>
         document.getElementById('monthSelector').value = new Date().toISOString().slice(0, 7);
 
+        // Globally cache dynamic metrics structures for PDF engine usage references
+        let activeLogsCache = [];
+        let activeRosterCache = {};
+
         async function fetchLocalEmployeeRoster() {
             try {
                 const res = await fetch('/employees.json');
@@ -196,13 +226,11 @@
             const selectedPeriod = document.getElementById('monthSelector').value; 
             const [year, month] = selectedPeriod.split('-');
             const totalDaysInMonth = new Date(year, month, 0).getDate();
-            
-            // ⏰ Get a clean comparison boundary for the current live date string matching local time
             const todayStr = new Date().toLocaleDateString('en-CA'); 
 
             const response = await fetch(`/api/admin/monthly-report?month=${selectedPeriod}`);
-            const logsData = await response.json();
-            const employeeMap = await fetchLocalEmployeeRoster();
+            activeLogsCache = await response.json();
+            activeRosterCache = await fetchLocalEmployeeRoster();
 
             const thead = document.getElementById('matrixHead');
             const tbody = document.getElementById('matrixBody');
@@ -216,12 +244,19 @@
             for (let day = 1; day <= totalDaysInMonth; day++) {
                 const checkDate = new Date(year, month - 1, day);
                 const isSunday = checkDate.getDay() === 0;
+                const padDay = String(day).padStart(2, '0');
+                const loopDateStr = `${selectedPeriod}-${padDay}`;
+
+                // Render functional PDF printout link button unless the column pointer is in the future
+                const pdfButtonHtml = (loopDateStr <= todayStr && !isSunday) 
+                    ? `<br><button class="pdf-btn" onclick="exportDailyPdf('${loopDateStr}')">📥 PDF</button>` 
+                    : '';
                 
                 if (isSunday) {
                     topHeaderRow += `<th colspan="3" style="background-color: #cbd5e1; color:#334155; min-width: 140px;">Day ${day}</th>`;
                     subHeaderRow += `<th colspan="3" style="background-color: #cbd5e1; color:#475569; text-align:center;">Sunday</th>`;
                 } else {
-                    topHeaderRow += `<th colspan="3" style="min-width: 140px;">${day}</th>`;
+                    topHeaderRow += `<th colspan="3" style="min-width: 140px;">Day ${day} ${pdfButtonHtml}</th>`;
                     subHeaderRow += `<th>In</th><th>Out</th><th>Work</th>`;
                 }
             }
@@ -230,8 +265,8 @@
             subHeaderRow += `<th class="summary-header">Present</th><th class="summary-header">Total Hours</th></tr>`;
             thead.innerHTML = topHeaderRow + subHeaderRow;
 
-            Object.keys(employeeMap).forEach(empId => {
-                const empName = employeeMap[empId];
+            Object.keys(activeRosterCache).forEach(empId => {
+                const empName = activeRosterCache[empId];
                 let tr = document.createElement('tr');
                 
                 let employeeStickyCard = `
@@ -252,12 +287,11 @@
                     const checkDate = new Date(year, month - 1, day);
                     const isSunday = checkDate.getDay() === 0;
 
-                    const dayLog = logsData.find(log => log.employeeId.toLowerCase() === empId.toLowerCase() && log.dateString === targetDateStr);
+                    const dayLog = activeLogsCache.find(log => log.employeeId.toLowerCase() === empId.toLowerCase() && log.dateString === targetDateStr);
 
                     if (isSunday) {
                         rowCellsHtml += `<td class="cell-sun" colspan="3">HOLIDAY</td>`;
                     } else if (dayLog) {
-                        // Regular day WITH actual record log data populated
                         const parseTime = (isoStr) => {
                             if (!isoStr) return '--:--';
                             const d = new Date(isoStr);
@@ -298,12 +332,9 @@
                             </td>
                         `;
                     } else {
-                        // 🧠 NO LOG DATA DETECTED SCENARIOS
                         if (targetDateStr > todayStr) {
-                            // 🚀 Future dates: Display clean empty cells instead of screaming ABSENT
                             rowCellsHtml += `<td class="cell-future" colspan="3">--</td>`;
                         } else {
-                            // Passed dates: Truly Absent
                             rowCellsHtml += `<td class="cell-abs" colspan="3">ABSENT (A)</td>`;
                         }
                     }
@@ -320,6 +351,89 @@
                 tr.innerHTML = employeeStickyCard + rowCellsHtml;
                 tbody.appendChild(tr);
             });
+        }
+
+        // ==========================================
+        // 📥 EXPORT DAILY REPORT TO PDF ENGINE
+        // ==========================================
+        function exportDailyPdf(targetDateStr) {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
+
+            // 1. Build Document Header Highlights Banner
+            doc.setFillColor(79, 70, 229); // TechE Indigo Dark Mode Fill
+            doc.rect(0, 0, 595, 65, 'F');
+            
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(18);
+            doc.text("TechE Education", 40, 38);
+            
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(11);
+            doc.text(`Daily Employee Activity Register: ${targetDateStr}`, 40, 52);
+
+            // 2. Loop Through All Employees and Compile the Report Rows Data
+            const tableBodyRows = [];
+            
+            Object.keys(activeRosterCache).forEach((empId) => {
+                const empName = activeRosterCache[empId];
+                
+                // Pull data matching coordinates matching target employee execution context
+                const dayLog = activeLogsCache.find(log => log.employeeId.toLowerCase() === empId.toLowerCase() && log.dateString === targetDateStr);
+
+                let timeIn = "--:--";
+                let timeOut = "--:--";
+                let duration = "--";
+                let status = "ABSENT";
+                let tasks = "No work submission found.";
+
+                if (dayLog) {
+                    const formatTime = (iso) => iso ? new Date(iso).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12:false}) : '--:--';
+                    timeIn = formatTime(dayLog.checkIn);
+                    timeOut = formatTime(dayLog.checkOut);
+                    
+                    if (dayLog.totalMinutes > 0) {
+                        const h = Math.floor(dayLog.totalMinutes / 60);
+                        const m = dayLog.totalMinutes % 60;
+                        duration = `${h}h ${m}m`;
+                        status = dayLog.totalMinutes >= 240 ? "Full Day (FD)" : "Half Day (HD)";
+                        tasks = dayLog.workSummary || "No tasks summary filled out.";
+                    }
+                }
+
+                tableBodyRows.push([
+                    empId.toUpperCase(),
+                    empName,
+                    timeIn,
+                    timeOut,
+                    duration,
+                    status,
+                    tasks
+                ]);
+            });
+
+            // 3. Inject jsPDF AutoTable Configuration Layout
+            doc.autoTable({
+                startY: 90,
+                head: [['ID', 'Employee Name', 'Check-In', 'Check-Out', 'Duration', 'Shift Status', 'Logged Tasks / Work Summary']],
+                body: tableBodyRows,
+                theme: 'grid',
+                headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10 },
+                styles: { fontSize: 9, cellPadding: 6, overflow: 'linebreak' },
+                columnStyles: {
+                    0: { cellWidth: 55 }, // ID
+                    1: { cellWidth: 90 }, // Name
+                    2: { cellWidth: 50 }, // In
+                    3: { cellWidth: 55 }, // Out
+                    4: { cellWidth: 50 }, // Duration
+                    5: { cellWidth: 75 }, // Status
+                    6: { cellWidth: 'auto' } // Tasks Summary Box expanding context dynamically
+                }
+            });
+
+            // 4. Prompt Browser File Download Trigger
+            doc.save(`TechE-Report-${targetDateStr}.pdf`);
         }
 
         function openDrawer(name, date, summary) {

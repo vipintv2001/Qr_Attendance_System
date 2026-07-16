@@ -17,8 +17,50 @@ app.use(express.static(path.join(__dirname, "public")));
 // 🗄️ Connect to Local MongoDB Instance (Standard Port 27017)
 mongoose
   .connect("mongodb://127.0.0.1:27017/teche_attendance")
-  .then(() => console.log("💾 MongoDB Connected Successfully"))
+  .then(() => {
+    console.log("💾 MongoDB Connected Successfully");
+    // Run the cleanup engine immediately after a successful database handshake
+    clearForgottenCheckouts();
+  })
   .catch((err) => console.error("Database connection failure:", err));
+
+// 🧹 MORNING STARTUP SWEEP: Auto-resolves forgotten checkouts from yesterday or earlier
+async function clearForgottenCheckouts() {
+  try {
+    const now = new Date();
+    const todayStr = now.toLocaleDateString("en-CA"); // Current date matching project criteria string format
+
+    console.log(
+      `🧹 Checking for unclosed attendance shifts prior to: ${todayStr}...`,
+    );
+
+    const result = await Attendance.updateMany(
+      {
+        dateString: { $lt: todayStr }, // Any record older than today's string format
+        $or: [{ checkOut: { $exists: false } }, { checkOut: null }],
+      },
+      {
+        $set: {
+          checkOut: null, // Leaves database object clean or standardizes it
+          workSummary: "Not Added", // Custom flag matching your prompt logic
+          status: "Pending", // Day status flagged as pending
+        },
+      },
+    );
+
+    if (result.modifiedCount > 0) {
+      console.log(
+        `✅ Startup Cleanup Complete: Swept and auto-checked out ${result.modifiedCount} old employee session(s).`,
+      );
+    } else {
+      console.log(
+        "✅ Startup Cleanup Complete: No forgotten shifts detected from prior days.",
+      );
+    }
+  } catch (error) {
+    console.error("❌ Error running startup auto-checkout cleanup:", error);
+  }
+}
 
 const REGISTRY_FILE = path.join(__dirname, "device_registry.json");
 const EMPLOYEE_FILE = path.join(__dirname, "employees.json");
@@ -161,6 +203,9 @@ app.post("/api/attendance", async (req, res) => {
           }
         }
       }
+
+      // Explicitly label the active runtime entry as Completed on direct standard check-outs
+      record.status = "Completed";
       await record.save();
 
       const checkOutTimeStr = now.toLocaleTimeString([], {
@@ -263,7 +308,7 @@ app.get("/api/admin/monthly-report", async (req, res) => {
 });
 
 const PORT = 8080;
-const LOCAL_IP = "192.168.1.108"; // Verified local laptop network IP
+const LOCAL_IP = "10.194.212.29"; // Verified local laptop network IP
 
 app.listen(PORT, () => {
   const url = `http://${LOCAL_IP}:${PORT}`;

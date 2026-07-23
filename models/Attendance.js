@@ -34,6 +34,8 @@ const AttendanceSchema = new mongoose.Schema(
       default: 0,
     },
     workSummary: { type: String, default: "" },
+    status: { type: String, default: "Pending" },
+    isManualEntry: { type: Boolean, default: false },
   },
   {
     // Automatically appends data creation records (createdAt, updatedAt) fields

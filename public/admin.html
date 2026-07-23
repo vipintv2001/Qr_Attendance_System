@@ -63,6 +63,25 @@
             box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
         }
 
+        .admin-override-btn {
+            background: #4f46e5;
+            color: #ffffff;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .admin-override-btn:hover {
+            background: #4338ca;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+        }
+
         .matrix-scroll-wrapper {
             background: #ffffff;
             border: 1px solid #e2e8f0;
@@ -170,6 +189,120 @@
         .close-btn { background: #f1f5f9; border: none; padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer; color: #475569; align-self: flex-start; margin-bottom: 24px; }
         .close-btn:hover { background: #e2e8f0; }
         .log-box { background: #f8fafc; border: 1px dashed var(--border-color); border-radius: 12px; padding: 16px; font-style: italic; color: #1e293b; line-height: 1.5; font-size: 14px; margin-top: 16px; }
+
+        /* Modal Overlay Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 2000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        .modal-overlay.active {
+            display: flex;
+            opacity: 1;
+        }
+        .modal-card {
+            background: #ffffff;
+            width: 90%;
+            max-width: 480px;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            padding: 28px;
+            box-sizing: border-box;
+            position: relative;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 0;
+        }
+        .modal-close {
+            background: #f1f5f9;
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            font-size: 16px;
+            cursor: pointer;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-close:hover { background: #e2e8f0; color: #0f172a; }
+
+        .form-group {
+            margin-bottom: 16px;
+            text-align: left;
+        }
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+        .form-control {
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+            font-family: inherit;
+            background: #ffffff;
+        }
+        .form-control:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+        .form-row {
+            display: flex;
+            gap: 12px;
+        }
+        .form-row .form-group {
+            flex: 1;
+        }
+        .btn-primary {
+            width: 100%;
+            padding: 12px;
+            background-color: #4f46e5;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary:hover { background-color: #4338ca; }
+        .error-message {
+            color: #ef4444;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 12px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -182,6 +315,7 @@
         <div class="controls-wrapper">
             <label style="font-size: 14px; font-weight: 600; color: var(--text-muted);">Target Ledger Period:</label>
             <input type="month" id="monthSelector" onchange="generateMatrixLedger()">
+            <button class="admin-override-btn" onclick="handleAdminOverrideClick()">⚙️ Admin Manual Entry / Edit</button>
         </div>
     </div>
 
@@ -202,6 +336,84 @@
         <div style="margin-top: 20px;">
             <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--primary); letter-spacing: 0.5px;">Employee Logged Text</label>
             <div id="drawerSummary" class="log-box"></div>
+        </div>
+    </div>
+
+    <!-- 🔐 ADMIN LOGIN MODAL -->
+    <div id="adminLoginModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 class="modal-title">🔐 Admin Authentication Required</h3>
+                <button class="modal-close" onclick="closeModal('adminLoginModal')">✕</button>
+            </div>
+            <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 16px 0;">Enter IT Admin credentials to access manual override settings.</p>
+            
+            <div id="loginErrorMessage" class="error-message">Invalid credentials. Please try again.</div>
+
+            <form onsubmit="submitAdminLogin(event)">
+                <div class="form-group">
+                    <label for="adminUsername">Username</label>
+                    <input type="text" id="adminUsername" class="form-control" placeholder="itadmin" required autocomplete="off" />
+                </div>
+                <div class="form-group">
+                    <label for="adminPassword">Password</label>
+                    <input type="password" id="adminPassword" class="form-control" placeholder="••••••••" required />
+                </div>
+                <button type="submit" class="btn-primary" style="margin-top: 8px;">Login to Admin Panel</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ⚙️ MANUAL ATTENDANCE OVERRIDE MODAL -->
+    <div id="manualOverrideModal" class="modal-overlay">
+        <div class="modal-card" style="max-width: 520px;">
+            <div class="modal-header">
+                <h3 class="modal-title">⚙️ Admin Manual Attendance Override</h3>
+                <button class="modal-close" onclick="closeModal('manualOverrideModal')">✕</button>
+            </div>
+            <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 16px 0;">Manually record or edit shift details for any employee date record.</p>
+
+            <div id="overrideErrorMessage" class="error-message"></div>
+
+            <form onsubmit="submitManualAttendance(event)">
+                <div class="form-group">
+                    <label for="manualEmpId">Select Employee</label>
+                    <select id="manualEmpId" class="form-control" required></select>
+                </div>
+
+                <div class="form-group">
+                    <label for="manualDate">Target Date</label>
+                    <input type="date" id="manualDate" class="form-control" required />
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="manualCheckIn">Check-In Time</label>
+                        <input type="time" id="manualCheckIn" class="form-control" />
+                    </div>
+                    <div class="form-group">
+                        <label for="manualCheckOut">Check-Out Time</label>
+                        <input type="time" id="manualCheckOut" class="form-control" />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="manualStatus">Status Selection</label>
+                    <select id="manualStatus" class="form-control" required>
+                        <option value="Completed">Completed</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Present">Present</option>
+                        <option value="Absent">Absent</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="manualWorkSummary">Work Summary / Override Notes</label>
+                    <textarea id="manualWorkSummary" class="form-control" rows="3" placeholder="e.g., System downtime manual log or forgot check-out"></textarea>
+                </div>
+
+                <button type="submit" class="btn-primary" style="margin-top: 8px;">Save Manual Attendance Record</button>
+            </form>
         </div>
     </div>
 
@@ -313,22 +525,27 @@
                             const m = dayLog.totalMinutes % 60;
                             workHrsStr = `${h}h ${m}m`;
 
-                            if (dayLog.totalMinutes >= 240) {
+                            const standardMins = 450; // 7h 30m threshold
+                            if (dayLog.totalMinutes >= standardMins) {
                                 statusMarker = 'FD';
                                 statusClass = 'cell-fd';
                             } else {
-                                statusMarker = 'HD';
+                                const shortMins = standardMins - dayLog.totalMinutes;
+                                const sH = Math.floor(shortMins / 60);
+                                const sM = shortMins % 60;
+                                statusMarker = `Short (-${sH}h ${sM}m)`;
                                 statusClass = 'cell-hd';
                             }
                         }
 
+                        const manualBadge = dayLog.isManualEntry ? ` <span style="font-size:9px; background:#e0e7ff; color:#3730a3; padding:1px 4px; border-radius:4px; font-weight:700;">⚙️</span>` : '';
                         const escapedSummary = dayLog.workSummary ? dayLog.workSummary.replace(/"/g, '&quot;') : 'No activity text filled out.';
 
                         rowCellsHtml += `
                             <td><span class="time-text">${timeInStr}</span></td>
                             <td><span class="time-text">${timeOutStr}</span></td>
                             <td class="${statusClass}" onclick="openDrawer('${empName}', '${targetDateStr}', '${escapedSummary}')">
-                                <strong>${workHrsStr}</strong> <span style="font-size:9px; opacity:0.7;">(${statusMarker})</span>
+                                <strong>${workHrsStr}</strong> <span style="font-size:9px; opacity:0.7;">(${statusMarker})</span>${manualBadge}
                             </td>
                         `;
                     } else {
@@ -360,8 +577,7 @@
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
 
-            // 1. Build Document Header Highlights Banner
-            doc.setFillColor(79, 70, 229); // TechE Indigo Dark Mode Fill
+            doc.setFillColor(79, 70, 229);
             doc.rect(0, 0, 595, 65, 'F');
             
             doc.setTextColor(255, 255, 255);
@@ -373,13 +589,10 @@
             doc.setFontSize(11);
             doc.text(`Daily Employee Activity Register: ${targetDateStr}`, 40, 52);
 
-            // 2. Loop Through All Employees and Compile the Report Rows Data
             const tableBodyRows = [];
             
             Object.keys(activeRosterCache).forEach((empId) => {
                 const empName = activeRosterCache[empId];
-                
-                // Pull data matching coordinates matching target employee execution context
                 const dayLog = activeLogsCache.find(log => log.employeeId.toLowerCase() === empId.toLowerCase() && log.dateString === targetDateStr);
 
                 let timeIn = "--:--";
@@ -397,7 +610,17 @@
                         const h = Math.floor(dayLog.totalMinutes / 60);
                         const m = dayLog.totalMinutes % 60;
                         duration = `${h}h ${m}m`;
-                        status = dayLog.totalMinutes >= 240 ? "Full Day (FD)" : "Half Day (HD)";
+                        
+                        const standardMins = 450; // 7h 30m threshold
+                        if (dayLog.totalMinutes >= standardMins) {
+                            status = "Full Day (FD)";
+                        } else {
+                            const shortMins = standardMins - dayLog.totalMinutes;
+                            const sH = Math.floor(shortMins / 60);
+                            const sM = shortMins % 60;
+                            status = `Short (-${sH}h ${sM}m)`;
+                        }
+                        if (dayLog.isManualEntry) status += " [Manual]";
                         tasks = dayLog.workSummary || "No tasks summary filled out.";
                     }
                 }
@@ -413,7 +636,6 @@
                 ]);
             });
 
-            // 3. Inject jsPDF AutoTable Configuration Layout
             doc.autoTable({
                 startY: 90,
                 head: [['ID', 'Employee Name', 'Check-In', 'Check-Out', 'Duration', 'Shift Status', 'Logged Tasks / Work Summary']],
@@ -422,17 +644,16 @@
                 headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10 },
                 styles: { fontSize: 9, cellPadding: 6, overflow: 'linebreak' },
                 columnStyles: {
-                    0: { cellWidth: 55 }, // ID
-                    1: { cellWidth: 90 }, // Name
-                    2: { cellWidth: 50 }, // In
-                    3: { cellWidth: 55 }, // Out
-                    4: { cellWidth: 50 }, // Duration
-                    5: { cellWidth: 75 }, // Status
-                    6: { cellWidth: 'auto' } // Tasks Summary Box expanding context dynamically
+                    0: { cellWidth: 55 },
+                    1: { cellWidth: 90 },
+                    2: { cellWidth: 50 },
+                    3: { cellWidth: 55 },
+                    4: { cellWidth: 50 },
+                    5: { cellWidth: 75 },
+                    6: { cellWidth: 'auto' }
                 }
             });
 
-            // 4. Prompt Browser File Download Trigger
             doc.save(`TechE-Report-${targetDateStr}.pdf`);
         }
 
@@ -445,6 +666,130 @@
 
         function closeDrawer() {
             document.body.classList.remove('drawer-open');
+        }
+
+        // ==========================================
+        // ⚙️ ADMIN MANUAL OVERRIDE & MODAL LOGIC
+        // ==========================================
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) modal.classList.add('active');
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) modal.classList.remove('active');
+            if (modalId === 'manualOverrideModal') {
+                sessionStorage.removeItem('admin_token');
+            }
+        }
+
+        function handleAdminOverrideClick() {
+            const token = sessionStorage.getItem('admin_token');
+            if (!token) {
+                openModal('adminLoginModal');
+            } else {
+                openManualOverrideModal();
+            }
+        }
+
+        async function submitAdminLogin(event) {
+            event.preventDefault();
+            const usernameInput = document.getElementById('adminUsername').value.trim();
+            const passwordInput = document.getElementById('adminPassword').value;
+            const errorMsg = document.getElementById('loginErrorMessage');
+
+            errorMsg.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: usernameInput, password: passwordInput })
+                });
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    sessionStorage.setItem('admin_token', data.token);
+                    closeModal('adminLoginModal');
+                    openManualOverrideModal();
+                } else {
+                    errorMsg.innerText = data.message || 'Invalid credentials. Access Denied.';
+                    errorMsg.style.display = 'block';
+                }
+            } catch (err) {
+                errorMsg.innerText = 'Server error during login. Please try again.';
+                errorMsg.style.display = 'block';
+            }
+        }
+
+        function openManualOverrideModal() {
+            populateEmployeeDropdown();
+            document.getElementById('manualDate').value = new Date().toLocaleDateString('en-CA');
+            document.getElementById('manualCheckIn').value = '09:00';
+            document.getElementById('manualCheckOut').value = '16:30';
+            document.getElementById('manualWorkSummary').value = '';
+            document.getElementById('manualStatus').value = 'Completed';
+            document.getElementById('overrideErrorMessage').style.display = 'none';
+            openModal('manualOverrideModal');
+        }
+
+        function populateEmployeeDropdown() {
+            const select = document.getElementById('manualEmpId');
+            select.innerHTML = '';
+            
+            const roster = Object.keys(activeRosterCache).length > 0 
+                ? activeRosterCache 
+                : { "teche1001": "Rahul Sharma", "teche1002": "Anjali Nair" };
+
+            Object.keys(roster).forEach(empId => {
+                const option = document.createElement('option');
+                option.value = empId;
+                option.textContent = `${roster[empId]} (${empId.toUpperCase()})`;
+                select.appendChild(option);
+            });
+        }
+
+        async function submitManualAttendance(event) {
+            event.preventDefault();
+            const employeeId = document.getElementById('manualEmpId').value;
+            const dateString = document.getElementById('manualDate').value;
+            const checkInTime = document.getElementById('manualCheckIn').value;
+            const checkOutTime = document.getElementById('manualCheckOut').value;
+            const status = document.getElementById('manualStatus').value;
+            const workSummary = document.getElementById('manualWorkSummary').value;
+
+            const errorMsg = document.getElementById('overrideErrorMessage');
+            errorMsg.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/admin/attendance/manual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        employeeId,
+                        dateString,
+                        checkInTime,
+                        checkOutTime,
+                        status,
+                        workSummary
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    closeModal('manualOverrideModal');
+                    alert('✅ Manual Attendance Record Saved Successfully!');
+                    generateMatrixLedger();
+                } else {
+                    errorMsg.innerText = data.message || 'Failed to save manual entry.';
+                    errorMsg.style.display = 'block';
+                }
+            } catch (err) {
+                errorMsg.innerText = 'Server error processing manual entry.';
+                errorMsg.style.display = 'block';
+            }
         }
 
         generateMatrixLedger();

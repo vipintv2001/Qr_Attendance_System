@@ -135,15 +135,21 @@
           </div>
         </div>
 
-        <!-- 📝 Dynamic Work Summary Box for Check-Out -->
-        <div class="input-group" id="workLogGroup" style="display: none;">
-          <label for="dailyWorkReport" style="color: #ea580c; font-weight: 700;">Daily Work Summary</label>
-          <textarea 
-            id="dailyWorkReport" 
-            name="workSummary" 
-            placeholder="What tasks or modules did you work on today?..."
-            autocomplete="off"
-          ></textarea>
+        <!-- 🟢 Check-In Section -->
+        <div id="checkin-section"></div>
+
+        <!-- 🟠 Check-Out Section -->
+        <div id="checkout-section" style="display: none;">
+          <!-- 📝 Dynamic Work Summary Box for Check-Out -->
+          <div class="input-group" id="workLogGroup">
+            <label for="dailyWorkReport" style="color: #ea580c; font-weight: 700;">Daily Work Summary</label>
+            <textarea 
+              id="dailyWorkReport" 
+              name="workSummary" 
+              placeholder="What tasks or modules did you work on today?..."
+              autocomplete="off"
+            ></textarea>
+          </div>
         </div>
 
         <button type="submit" id="submitBtn">Verify & Submit</button>
@@ -151,65 +157,100 @@
     </div>
 
     <script>
-      window.addEventListener('DOMContentLoaded', () => {
+      async function initializeAttendancePage() {
           let token = localStorage.getItem('teche_device_token');
           let savedId = localStorage.getItem('teche_saved_id');
           let savedName = localStorage.getItem('teche_saved_name');
-          let nextAction = localStorage.getItem('teche_next_action') || 'Check-In';
           
           if (!token) {
               token = 'token_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
               localStorage.setItem('teche_device_token', token);
           }
-          document.getElementById('deviceToken').value = token;
-          document.getElementById('attendanceAction').value = nextAction;
+          const deviceTokenInput = document.getElementById('deviceToken');
+          if (deviceTokenInput) deviceTokenInput.value = token;
 
           const submitBtn = document.getElementById('submitBtn');
           const statusIndicator = document.getElementById('statusIndicator');
           const workLogGroup = document.getElementById('workLogGroup');
           const dailyWorkReport = document.getElementById('dailyWorkReport');
+          const checkinSection = document.getElementById('checkin-section');
+          const checkoutSection = document.getElementById('checkout-section');
+          const attendanceActionInput = document.getElementById('attendanceAction');
+          const idInputGroup = document.getElementById('idInputGroup');
+          const empNumberInput = document.getElementById('empNumber');
+          const welcomeBadge = document.getElementById('welcomeBadge');
+          const realEmployeeIdInput = document.getElementById('realEmployeeId');
+
+          let showScreen = 'checkin';
 
           if (savedId) {
-              document.getElementById('realEmployeeId').value = savedId;
-              document.getElementById('idInputGroup').style.display = 'none';
-              document.getElementById('empNumber').removeAttribute('required');
+              if (realEmployeeIdInput) realEmployeeIdInput.value = savedId;
+              if (idInputGroup) idInputGroup.style.display = 'none';
+              if (empNumberInput) empNumberInput.removeAttribute('required');
               
-              // 👤 Displays Name natively if it exists, fallbacks back to ID string
               const displayName = savedName ? savedName : savedId.toUpperCase();
-              document.getElementById('welcomeBadge').innerHTML = `👤 <b>${displayName}</b><br><small style="color:var(--text-sub); font-weight:500;">ID: ${savedId.toUpperCase()}</small>`;
-              document.getElementById('welcomeBadge').style.display = 'block';
+              if (welcomeBadge) {
+                  welcomeBadge.innerHTML = `👤 <b>${displayName}</b><br><small style="color:var(--text-sub); font-weight:500;">ID: ${savedId.toUpperCase()}</small>`;
+                  welcomeBadge.style.display = 'block';
+              }
 
-              statusIndicator.style.display = 'inline-block';
-              if (nextAction === 'Check-In') {
-                  statusIndicator.innerText = "Status: Currently Not Logged IN";
-                  statusIndicator.className = "status-indicator status-out";
-                  submitBtn.innerText = "Check-In";
-                  submitBtn.style.backgroundColor = "#10b981";
-                  
-                  // Hide work input box during check-in setup
-                  workLogGroup.style.display = 'none';
-                  dailyWorkReport.removeAttribute('required');
-              } else {
-                  statusIndicator.innerText = "Status: Currently Working";
-                  statusIndicator.className = "status-indicator status-in";
-                  submitBtn.innerText = "Check-Out";
-                  submitBtn.style.backgroundColor = "#ea580c";
-                  
-                  // 🔥 Display summary textbox and make it mandatory for check-out
-                  workLogGroup.style.display = 'block';
-                  dailyWorkReport.setAttribute('required', 'true');
+              try {
+                  const response = await fetch(`/api/attendance/status/${encodeURIComponent(savedId)}`);
+                  if (response.ok) {
+                      const data = await response.json();
+                      if (data && data.showScreen) {
+                          showScreen = data.showScreen;
+                      }
+                  }
+              } catch (err) {
+                  console.error("Error fetching status from server:", err);
               }
           } else {
-              document.getElementById('empNumber').setAttribute('required', 'true');
-              statusIndicator.style.display = 'none';
-              workLogGroup.style.display = 'none';
-              dailyWorkReport.removeAttribute('required');
+              if (empNumberInput) empNumberInput.setAttribute('required', 'true');
+              if (statusIndicator) statusIndicator.style.display = 'none';
+              if (welcomeBadge) welcomeBadge.style.display = 'none';
           }
-      });
+
+          if (showScreen === 'checkout') {
+              if (attendanceActionInput) attendanceActionInput.value = 'Check-Out';
+              if (checkinSection) checkinSection.style.display = 'none';
+              if (checkoutSection) checkoutSection.style.display = 'block';
+              if (workLogGroup) workLogGroup.style.display = 'block';
+              if (dailyWorkReport) dailyWorkReport.setAttribute('required', 'true');
+              
+              if (statusIndicator) {
+                  statusIndicator.innerText = "Status: Currently Working";
+                  statusIndicator.className = "status-indicator status-in";
+                  statusIndicator.style.display = 'inline-block';
+              }
+              if (submitBtn) {
+                  submitBtn.innerText = "Check-Out";
+                  submitBtn.style.backgroundColor = "#ea580c";
+              }
+          } else {
+              // Default fallback: Check-In screen
+              if (attendanceActionInput) attendanceActionInput.value = 'Check-In';
+              if (checkinSection) checkinSection.style.display = 'block';
+              if (checkoutSection) checkoutSection.style.display = 'none';
+              if (workLogGroup) workLogGroup.style.display = 'none';
+              if (dailyWorkReport) dailyWorkReport.removeAttribute('required');
+
+              if (savedId && statusIndicator) {
+                  statusIndicator.innerText = "Status: Currently Not Logged IN";
+                  statusIndicator.className = "status-indicator status-out";
+                  statusIndicator.style.display = 'inline-block';
+              }
+              if (submitBtn) {
+                  submitBtn.innerText = "Check-In";
+                  submitBtn.style.backgroundColor = "#10b981";
+              }
+          }
+      }
+
+      window.addEventListener('DOMContentLoaded', initializeAttendancePage);
 
       function combinePrefix() {
           let savedId = localStorage.getItem('teche_saved_id');
-          let currentAction = document.getElementById('attendanceAction').value;
           
           if (!savedId) {
               const numInput = document.getElementById('empNumber').value.trim();
@@ -217,9 +258,6 @@
               document.getElementById('realEmployeeId').value = savedId;
               localStorage.setItem('teche_saved_id', savedId);
           }
-
-          const toggleNextAction = currentAction === 'Check-In' ? 'Check-Out' : 'Check-In';
-          localStorage.setItem('teche_next_action', toggleNextAction);
       }
     </script>
   </body>

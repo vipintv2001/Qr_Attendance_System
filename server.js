@@ -37,7 +37,11 @@ async function clearForgottenCheckouts() {
     const result = await Attendance.updateMany(
       {
         dateString: { $lt: todayStr }, // Any record older than today's string format
-        $or: [{ checkOut: { $exists: false } }, { checkOut: null }],
+        $or: [
+          { checkOut: { $exists: false } },
+          { checkOut: null },
+          { checkOut: "" },
+        ],
       },
       {
         $set: {
@@ -61,6 +65,42 @@ async function clearForgottenCheckouts() {
     console.error("❌ Error running startup auto-checkout cleanup:", error);
   }
 }
+
+// 🔍 DATE-ISOLATED SCREEN STATUS ENDPOINT
+app.get("/api/attendance/status/:employeeId", async (req, res) => {
+  try {
+    const employeeId = req.params.employeeId.toLowerCase();
+    const todayStr = new Date().toLocaleDateString("en-CA");
+
+    const record = await Attendance.findOne({
+      employeeId,
+      dateString: todayStr,
+    });
+
+    if (!record) {
+      // Case A: No record found for today -> Return { showScreen: "checkin" }
+      return res.json({ showScreen: "checkin" });
+    }
+
+    // Case B: Record found with valid checkIn AND missing/null/empty checkOut (or checkIn is after checkOut) -> Return { showScreen: "checkout" }
+    const hasCheckIn = !!record.checkIn;
+    const hasCheckOut =
+      record.checkOut !== undefined &&
+      record.checkOut !== null &&
+      record.checkOut !== "" &&
+      (!record.checkIn || new Date(record.checkOut) >= new Date(record.checkIn));
+
+    if (hasCheckIn && !hasCheckOut) {
+      return res.json({ showScreen: "checkout" });
+    }
+
+    // Case C: Record found where checkOut exists or is marked "Not Added" -> Return { showScreen: "checkin" }
+    return res.json({ showScreen: "checkin" });
+  } catch (error) {
+    console.error("❌ Error fetching attendance status:", error);
+    res.status(500).json({ showScreen: "checkin", error: error.message });
+  }
+});
 
 const REGISTRY_FILE = path.join(__dirname, "device_registry.json");
 const EMPLOYEE_FILE = path.join(__dirname, "employees.json");
@@ -120,6 +160,7 @@ app.post("/api/attendance", async (req, res) => {
   // 💾 STEP 1: WRITE & CALCULATE IN MONGO DB
   // ==========================================
   let responseHtml = "";
+  let alertScriptHtml = "";
 
   try {
     // Look if a MongoDB log already exists for this employee today
@@ -132,9 +173,14 @@ app.post("/api/attendance", async (req, res) => {
           employeeName,
           dateString: todayStr,
           checkIn: now,
+          status: "Pending",
         });
       } else {
         record.checkIn = now; // Overwrite if scanning check-in again on the same day
+        record.checkOut = null; // Clear any previous checkOut timestamp to open active shift
+        record.workSummary = "";
+        record.totalMinutes = 0;
+        record.status = "Pending";
       }
       await record.save();
 
@@ -143,7 +189,8 @@ app.post("/api/attendance", async (req, res) => {
         minute: "2-digit",
         second: "2-digit",
       });
-      const estimatedEst = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+      // ⏱️ Estimated Checkout = Check-In Time + 7 hours 30 minutes (450 minutes)
+      const estimatedEst = new Date(now.getTime() + 7.5 * 60 * 60 * 1000);
       const estimatedStr = estimatedEst.toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
@@ -158,7 +205,7 @@ app.post("/api/attendance", async (req, res) => {
                       <div class="data-row"><span class="label">Name</span><span class="value" style="color:#4f46e5;">${employeeName}</span></div>
                       <div class="data-row"><span class="label">Employee ID</span><span class="value">${employeeId.toUpperCase()}</span></div>
                       <div class="data-row"><span class="label">Clocked In</span><span class="value">${checkInTimeStr}</span></div>
-                      <div class="data-row"><span class="label">Est. Checkout (+8h)</span><span class="value" style="font-weight:700;">${estimatedStr}</span></div>
+                      <div class="data-row"><span class="label">Est. Checkout (+7h 30m)</span><span class="value" style="font-weight:700;">${estimatedStr}</span></div>
                   </div>
               </div>`;
     } else {
@@ -166,6 +213,8 @@ app.post("/api/attendance", async (req, res) => {
       let durationStr = "--";
       let statusStr = "Completed";
       let statusColor = "#64748b";
+      let extraDetailsHtml = "";
+      let warningBannerHtml = "";
 
       if (!record) {
         // ⚠️ NEW DAY ROLLOVERS RULE: If checking out on a fresh calendar cell day without checking in,
@@ -176,7 +225,11 @@ app.post("/api/attendance", async (req, res) => {
           dateString: todayStr,
           checkOut: now,
           workSummary: workSummary || "Logged checkout directly.",
+          status: "Completed",
         });
+        extraDetailsHtml = `
+          <div class="data-row"><span class="label">Shift Status</span><span class="value" style="color:#64748b; font-weight:700;">Completed</span></div>
+        `;
       } else {
         record.checkOut = now;
         record.workSummary = workSummary || ""; // Save user text input safely into DB row instance
@@ -185,22 +238,74 @@ app.post("/api/attendance", async (req, res) => {
           const diffMs = record.checkOut - record.checkIn;
           record.totalMinutes = Math.floor(diffMs / 1000 / 60);
 
-          const hours = Math.floor(record.totalMinutes / 60);
-          const minutes = record.totalMinutes % 60;
-          durationStr = `${hours}h ${minutes}m`;
+          const workedHours = Math.floor(record.totalMinutes / 60);
+          const workedRemMins = record.totalMinutes % 60;
+          durationStr = `${workedHours}h ${workedRemMins}m`;
 
-          const standardWorkMins = 8 * 60;
+          // ⏱️ STANDARD SHIFT DURATION: 7 hours 30 minutes = 450 total minutes
+          const standardWorkMins = 450;
           const varianceMins = record.totalMinutes - standardWorkMins;
-          const varHours = Math.floor(Math.abs(varianceMins) / 60);
-          const varMins = Math.abs(varianceMins) % 60;
 
-          if (varianceMins >= 0) {
-            statusStr = `+${varHours}h ${varMins}m Overtime`;
+          const estimatedEst = new Date(
+            record.checkIn.getTime() + 7.5 * 60 * 60 * 1000,
+          );
+          const estimatedCheckoutStr = estimatedEst.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
+          if (record.totalMinutes >= standardWorkMins) {
+            const overtimeMins = record.totalMinutes - standardWorkMins;
+            const otH = Math.floor(overtimeMins / 60);
+            const otM = overtimeMins % 60;
+            statusStr = `Full Day (+${otH}h ${otM}m Overtime)`;
             statusColor = "#10b981";
+
+            extraDetailsHtml = `
+              <div class="data-row"><span class="label">Total Work Duration</span><span class="value" style="font-weight:700; color:#10b981;">${durationStr}</span></div>
+              <div class="data-row"><span class="label">Shift Status</span><span class="value" style="color:${statusColor}; font-weight:700;">${statusStr}</span></div>
+            `;
           } else {
-            statusStr = `-${varHours}h ${varMins}m Short/Early`;
+            // ⚠️ SHORTFALL CALCULATION (< 450 minutes / 7.30 hours)
+            const shortMins = standardWorkMins - record.totalMinutes;
+            const shortHours = Math.floor(shortMins / 60);
+            const shortRemMins = shortMins % 60;
+            const shortFormattedStr = `${shortHours}h ${shortRemMins}m`;
+
+            // Required Status Format: -Xh Ym Short/Early in bold red (#ef4444)
+            statusStr = `-${shortHours}h ${shortRemMins}m Short/Early`;
             statusColor = "#ef4444";
+
+            // 🔔 Native Browser Popup Alert Injection
+            alertScriptHtml = `
+              <script>
+                alert("⚠️ INCOMPLETE SHIFT WARNING\\n\\nYou are checking out ${shortHours} hour(s) and ${shortRemMins} minute(s) before completing your required 7 hours 30 minutes shift.\\n\\nTotal Worked: ${workedHours} hour(s) ${workedRemMins} minute(s).");
+              </script>
+            `;
+
+            // On-screen Warning Banner HTML
+            warningBannerHtml = `
+              <div style="background:#fef2f2; border:1px solid #fca5a5; border-radius:14px; padding:14px; margin-bottom:18px; text-align:left;">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                      <span style="font-size:18px;">⚠️</span>
+                      <span style="font-size:14px; font-weight:700; color:#dc2626;">Incomplete Shift Warning</span>
+                  </div>
+                  <p style="font-size:13px; color:#991b1b; margin:0; line-height:1.4;">
+                      You are checking out <b>${shortFormattedStr}</b> before completing your required 7 hours 30 minutes shift.
+                  </p>
+              </div>`;
+
+            extraDetailsHtml = `
+              <div class="data-row"><span class="label">Total Worked</span><span class="value" style="font-weight:700;">${durationStr}</span></div>
+              <div class="data-row"><span class="label">Est. Checkout (7h 30m)</span><span class="value">${estimatedCheckoutStr}</span></div>
+              <div class="data-row"><span class="label">Time Shortfall</span><span class="value" style="color:#ef4444; font-weight:700;">${shortFormattedStr} needed</span></div>
+              <div class="data-row"><span class="label">Shift Status</span><span class="value" style="color:${statusColor}; font-weight:700;">${statusStr}</span></div>
+            `;
           }
+        } else {
+          extraDetailsHtml = `
+            <div class="data-row"><span class="label">Shift Status</span><span class="value" style="color:#64748b; font-weight:700;">Completed</span></div>
+          `;
         }
       }
 
@@ -216,6 +321,7 @@ app.post("/api/attendance", async (req, res) => {
 
       responseHtml = `
               <div class="card">
+                  ${warningBannerHtml}
                   <div class="icon" style="color:#ea580c;">✓</div>
                   <h2>Shift Completed</h2>
                   <p>Good job today, <b>${employeeName}</b>! Your departure has been logged.</p>
@@ -223,8 +329,7 @@ app.post("/api/attendance", async (req, res) => {
                       <div class="data-row"><span class="label">Name</span><span class="value" style="color:#ea580c;">${employeeName}</span></div>
                       <div class="data-row"><span class="label">Employee ID</span><span class="value">${employeeId.toUpperCase()}</span></div>
                       <div class="data-row"><span class="label">Checked Out</span><span class="value">${checkOutTimeStr}</span></div>
-                      <div class="data-row"><span class="label">Total Duration</span><span class="value" style="font-weight:700;">${durationStr}</span></div>
-                      <div class="data-row"><span class="label">Shift Status</span><span class="value" style="color:${statusColor}; font-weight:700;">${statusStr}</span></div>
+                      ${extraDetailsHtml}
                   </div>
                   <!-- Professional Summary Preview Component Block -->
                   <div style="margin-top:16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:12px; text-align:left;">
@@ -271,7 +376,7 @@ app.post("/api/attendance", async (req, res) => {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Verification Receipt</title>
             <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px 0; }
                 .card { width: 85%; max-width: 360px; background: white; padding: 40px 24px; border-radius: 24px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.03), 0 8px 10px -6px rgba(0,0,0,0.03); text-align: center; }
                 .icon { font-size: 42px; margin-bottom: 20px; line-height: 1; }
                 h2 { font-size: 22px; font-weight: 700; margin: 0 0 8px 0; color: #1e293b; letter-spacing: -0.5px; }
@@ -285,9 +390,14 @@ app.post("/api/attendance", async (req, res) => {
         </head>
         <body>
             ${responseHtml}
+            ${alertScriptHtml}
 
             <script>
+                localStorage.setItem('teche_saved_id', "${employeeId.toLowerCase().trim()}");
                 localStorage.setItem('teche_saved_name', "${employeeName}");
+                setTimeout(function() {
+                    window.location.href = "/";
+                }, 4000);
             </script>
         </body>
         </html>
@@ -307,8 +417,105 @@ app.get("/api/admin/monthly-report", async (req, res) => {
   }
 });
 
+// 🔐 ADMIN AUTHENTICATION ROUTE
+app.post("/api/admin/login", (req, res) => {
+  const { username, password } = req.body;
+  if (username === "itadmin" && password === "itadmin@teche") {
+    return res.json({ success: true, token: "admin-auth-token" });
+  } else {
+    return res
+      .status(401)
+      .json({ success: false, message: "Invalid username or password." });
+  }
+});
+
+// ⚙️ ADMIN MANUAL ATTENDANCE OVERRIDE ROUTE
+app.post("/api/admin/attendance/manual", async (req, res) => {
+  try {
+    const {
+      employeeId,
+      dateString,
+      checkInTime,
+      checkOutTime,
+      workSummary,
+      status,
+    } = req.body;
+
+    if (!employeeId || !dateString) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Employee ID and Date are required.",
+        });
+    }
+
+    const cleanEmpId = employeeId.toLowerCase().trim();
+    const employeeName = getEmployeeName(cleanEmpId);
+
+    let checkIn = null;
+    if (checkInTime) {
+      checkIn = new Date(`${dateString}T${checkInTime}:00`);
+      if (isNaN(checkIn.getTime())) checkIn = null;
+    }
+
+    let checkOut = null;
+    if (checkOutTime) {
+      checkOut = new Date(`${dateString}T${checkOutTime}:00`);
+      if (isNaN(checkOut.getTime())) checkOut = null;
+    }
+
+    let totalMinutes = 0;
+    if (checkIn && checkOut) {
+      const diffMs = checkOut.getTime() - checkIn.getTime();
+      totalMinutes = diffMs > 0 ? Math.floor(diffMs / 1000 / 60) : 0;
+    }
+
+    let record = await Attendance.findOne({
+      employeeId: cleanEmpId,
+      dateString,
+    });
+
+    if (record) {
+      record.employeeName = employeeName;
+      if (checkIn) record.checkIn = checkIn;
+      if (checkOut) record.checkOut = checkOut;
+      record.workSummary =
+        workSummary || record.workSummary || "Manual entry override";
+      record.status = status || "Completed";
+      record.totalMinutes = totalMinutes;
+      record.isManualEntry = true;
+      await record.save();
+    } else {
+      record = new Attendance({
+        employeeId: cleanEmpId,
+        employeeName,
+        dateString,
+        checkIn,
+        checkOut,
+        workSummary: workSummary || "Manual entry override",
+        status: status || "Completed",
+        totalMinutes,
+        isManualEntry: true,
+      });
+      await record.save();
+    }
+
+    return res.json({
+      success: true,
+      message: "Manual attendance record processed successfully.",
+      record,
+    });
+  } catch (error) {
+    console.error("❌ Error processing manual attendance override:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal server error." });
+  }
+});
+
 const PORT = 8080;
-const LOCAL_IP = "10.194.212.29"; // Verified local laptop network IP
+const LOCAL_IP = "192.168.1.59"; // Verified local laptop network IP
 
 app.listen(PORT, () => {
   const url = `http://${LOCAL_IP}:${PORT}`;
